@@ -212,6 +212,11 @@ instance
   (HttpTT x) >>= f = HttpTT (x >>= (httpTT . f))
 
 instance
+  (Monad eff, Monad (t eff), MonadTrans t, MonadFail (t eff))
+    => MonadFail (HttpTT e r w s p t eff) where
+  fail = HttpTT . fail
+
+instance
   (MonadTrans t, forall m. (Monad m) => Monad (t m))
     => MonadTrans (HttpTT e r w s p t) where
   lift = HttpTT . lift
