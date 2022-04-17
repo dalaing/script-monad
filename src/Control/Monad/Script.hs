@@ -142,6 +142,11 @@ instance
     runScriptTT x (s0,r) g cont
 
 instance
+  (Monoid w, Monad eff, Monad (t eff), MonadTrans t, MonadFail (t eff))
+    => MonadFail (ScriptTT e r w s p t eff) where
+  fail msg = ScriptTT $ \_ -> \_ _ -> fail msg
+
+instance
   (Monoid w, Monad eff, Monad (t eff), MonadTrans t)
     => Applicative (ScriptTT e r w s p t eff) where
   pure = return

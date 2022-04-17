@@ -1,6 +1,16 @@
 Changelog for script-monad
 ==========================
 
+Unreleased
+----------
+
+* Added
+    * `MonadFail` instances for `ScriptTT` and `HttpTT`
+* Changed
+    * Stack resolver to lts-18.28
+
+
+
 0.0.3
 -----
 
