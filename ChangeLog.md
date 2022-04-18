@@ -7,7 +7,8 @@ Unreleased
 * Added
     * `MonadFail` instances for `ScriptTT` and `HttpTT`
 * Changed
-    * Stack resolver to lts-18.28
+    * Stack resolver to lts-19.1
+    * `Eq` instance for `HttpResponse`; see https://github.com/snoyberg/http-client/issues/433
 
 
 

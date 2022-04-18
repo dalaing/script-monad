@@ -37,9 +37,10 @@ import Data.Vector
 import Network.HTTP.Client
   ( HttpException(..), CookieJar, HttpExceptionContent(StatusCodeException)
   , Response, responseCookieJar, responseBody, createCookieJar
-  , responseHeaders, responseVersion, responseStatus )
+  , responseHeaders, responseVersion, responseStatus, equalCookieJar )
 import Network.HTTP.Types
 import Data.Aeson (Value(..), object, (.=))
+import Data.Aeson.Key (fromString)
 import qualified Data.Text as T (Text, pack)
 
 
@@ -53,7 +54,16 @@ data HttpResponse = HttpResponse
   , _responseHeaders :: ResponseHeaders
   , _responseBody :: ByteString
   , _responseCookieJar :: CookieJar
-  } deriving (Eq, Show)
+  } deriving (Show)
+
+instance Eq HttpResponse where
+  r1 == r2 = and
+    [ (==)           (_responseStatus    r1) (_responseStatus    r2)
+    , (==)           (_responseVersion   r1) (_responseVersion   r2)
+    , (==)           (_responseHeaders   r1) (_responseHeaders   r2)
+    , (==)           (_responseBody      r1) (_responseBody      r2)
+    , equalCookieJar (_responseCookieJar r1) (_responseCookieJar r2)
+    ]
 
 -- | Convert an opaque `Response ByteString` into an `HttpResponse`.
 readHttpResponse :: Response ByteString -> HttpResponse
@@ -72,7 +82,7 @@ jsonResponseHeaders :: ResponseHeaders -> Value
 jsonResponseHeaders =
   Array . fromList . map (\(k,v) -> object [ (key k) .= (val v) ])
   where
-    key = T.pack . concatMap esc . show
+    key = fromString . concatMap esc . show
     val = T.pack . concatMap esc . show
 
     esc c = case c of

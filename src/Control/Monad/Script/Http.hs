@@ -139,8 +139,6 @@ import Data.ByteString.Lazy.Char8
   ( unpack, pack )
 import Data.Functor.Identity
   ( Identity() )
-import Data.HashMap.Strict
-  ( lookup )
 import Data.IORef
   ( IORef, newIORef, readIORef, writeIORef )
 import Data.List
@@ -180,6 +178,8 @@ import Test.QuickCheck
 import qualified Control.Monad.Script as S
 import Network.HTTP.Client.Extras
 import Data.Aeson.Extras
+import Data.Aeson.Key (fromText)
+import Data.Aeson.KeyMap (lookup)
 import Data.LogSeverity
 import Data.MockIO
 import Data.MockIO.FileSystem
@@ -1158,7 +1158,7 @@ lookupKeyJson
   -> Value -- ^ JSON object
   -> HttpTT e r w s p t eff Value
 lookupKeyJson key v = case v of
-  Object obj -> case lookup key obj of
+  Object obj -> case lookup (fromText key) obj of
     Nothing -> throwJsonError $ JsonKeyDoesNotExist key (Object obj)
     Just value -> return value
   _ -> throwJsonError $ JsonKeyLookupOffObject key v
