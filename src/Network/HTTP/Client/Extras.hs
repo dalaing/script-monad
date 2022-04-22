@@ -10,7 +10,7 @@ Portability : POSIX
 HTTP helpers
 -}
 
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, CPP #-}
 module Network.HTTP.Client.Extras (
     Url
   , HttpResponse(..)
@@ -37,10 +37,23 @@ import Data.Vector
 import Network.HTTP.Client
   ( HttpException(..), CookieJar, HttpExceptionContent(StatusCodeException)
   , Response, responseCookieJar, responseBody, createCookieJar
-  , responseHeaders, responseVersion, responseStatus, equalCookieJar )
+  , responseHeaders, responseVersion, responseStatus )
+
+#if MIN_VERSION_http_client(0,7,0)
+-- http-client 0.7.0 removed the Eq instance for CookieJar in favor
+-- of multiple explicit equivalence relations.
+import Network.HTTP.Client
+  ( equalCookieJar )
+#endif
+
 import Network.HTTP.Types
 import Data.Aeson (Value(..), object, (.=))
+
+#if MIN_VERSION_aeson(2,0,0)
+-- aeson 2.0.0.0 introduced KeyMap over HashMap
 import Data.Aeson.Key (fromString)
+#endif
+
 import qualified Data.Text as T (Text, pack)
 
 
@@ -62,7 +75,13 @@ instance Eq HttpResponse where
     , (==)           (_responseVersion   r1) (_responseVersion   r2)
     , (==)           (_responseHeaders   r1) (_responseHeaders   r2)
     , (==)           (_responseBody      r1) (_responseBody      r2)
+
+#if MIN_VERSION_http_client(0,7,0)
     , equalCookieJar (_responseCookieJar r1) (_responseCookieJar r2)
+#else
+    , (==)           (_responseCookieJar r1) (_responseCookieJar r2)
+#endif
+
     ]
 
 -- | Convert an opaque `Response ByteString` into an `HttpResponse`.
@@ -82,7 +101,14 @@ jsonResponseHeaders :: ResponseHeaders -> Value
 jsonResponseHeaders =
   Array . fromList . map (\(k,v) -> object [ (key k) .= (val v) ])
   where
-    key = fromString . concatMap esc . show
+
+    key =
+#if MIN_VERSION_aeson(2,0,0)
+      fromString . concatMap esc . show
+#else
+      T.pack . concatMap esc . show
+#endif
+
     val = T.pack . concatMap esc . show
 
     esc c = case c of

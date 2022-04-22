@@ -14,10 +14,15 @@ import Data.ByteString.Lazy
   ( ByteString, pack )
 import Data.Typeable
 import Data.List (isSuffixOf)
+import Network.HTTP.Types
+import Network.HTTP.Client
+  ( HttpException(..), HttpExceptionContent(..) )
 
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
+import Test.QuickCheck.Property
+  ( failed, rejected )
 
 import Control.Monad.Script.Http
 import Data.MockIO
@@ -308,14 +313,14 @@ prop_httpGet
   => Proxy e -> Proxy r -> Proxy w -> Proxy s
   -> (forall u. P p u -> eff u)
   -> (forall e s w t. IdentityT eff (Either (E e) t, S s, W e w) -> IO (Either (E e) t, S s, W e w))
-  -> HttpT e r w s p eff ()
+  -> HttpT e r w s p eff Int
   -> s -> r -> Property
 prop_httpGet _ _ _ _ eval cond x s r =
   checkHttpTT (basicState s) (testEnv r) eval cond
-    (hasValue (== ())) $
+    (hasValue (== 200)) $
     as x $ do
-      httpGet "http://example.com"
-      return ()
+      response <- httpGet "http://example.com"
+      return (statusCode $ _responseStatus response)
 
 prop_httpGet_json
   :: (Monad eff, Show e, Show w, Show s, Show u)
@@ -396,28 +401,28 @@ prop_httpPost
   => Proxy e -> Proxy r -> Proxy w -> Proxy s
   -> (forall u. P p u -> eff u)
   -> (forall e s w t. IdentityT eff (Either (E e) t, S s, W e w) -> IO (Either (E e) t, S s, W e w))
-  -> HttpT e r w s p eff ()
+  -> HttpT e r w s p eff Int
   -> s -> r -> String -> Property
 prop_httpPost _ _ _ _ eval cond x s r payload =
   checkHttpTT (basicState s) (testEnv r) eval cond
-    (hasValue (== ())) $
+    (hasValue (== 200)) $
     as x $ do
-      httpPost "http://example.com" (fromString payload)
-      return ()
+      response <- httpPost "http://example.com" (fromString payload)
+      return (statusCode $ _responseStatus response)
 
 prop_httpSilentPost
   :: (Monad eff, Show e, Show w, Show s)
   => Proxy e -> Proxy r -> Proxy w -> Proxy s
   -> (forall u. P p u -> eff u)
   -> (forall e s w t. IdentityT eff (Either (E e) t, S s, W e w) -> IO (Either (E e) t, S s, W e w))
-  -> HttpT e r w s p eff ()
+  -> HttpT e r w s p eff Int
   -> s -> r -> String -> Property
 prop_httpSilentPost _ _ _ _ eval cond x s r payload =
   checkHttpTT (basicState s) (testEnv r) eval cond
-    (hasValue (== ())) $
+    (hasValue (== 200)) $
     as x $ do
-      httpSilentPost "http://example.com" (fromString payload)
-      return ()
+      response <- httpSilentPost "http://example.com" (fromString payload)
+      return (statusCode $ _responseStatus response)
 
 prop_throwError
   :: (Monad eff, Eq e, Show e, Show w, Show s)
@@ -521,12 +526,21 @@ prop_lookupKeyJson _ _ _ _ eval cond x s r k =
       lookupKeyJson "key" obj >>= constructFromJson
 
 hasValue
-  :: (t -> Bool)
+  :: (Show e) => (t -> Bool)
   -> (Either (E e) t, S s, W e w)
-  -> Bool
+  -> Property
 hasValue p (x,_,_) = case x of
-  Left e -> False
-  Right a -> p a
+  Left (E_Http (HttpExceptionRequest _ err)) ->
+    case err of
+      -- These errors are outside the control of this code, so it's better
+      -- to reject cases that trigger them than to fail the whole suite.
+      ConnectionTimeout -> property rejected
+      InternalException _ -> property rejected
+
+      -- These might be real errors. :)
+      e -> counterexample (show e) failed
+  Left e -> counterexample (show e) failed
+  Right a -> property $ p a
 
 hasLog
   :: (W e w -> Bool)

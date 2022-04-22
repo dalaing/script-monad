@@ -16,6 +16,7 @@ The name "script" is meant to evoke the script of a play. In the theater sense a
 
 {-#
   LANGUAGE
+    CPP,
     GADTs,
     Rank2Types,
     TupleSections, 
@@ -68,6 +69,10 @@ module Control.Monad.Script (
 
 
 
+#if MIN_VERSION_base(4,9,0)
+import Prelude hiding (fail)
+#endif
+
 import Control.Monad
   ( ap, join )
 import Control.Monad.Trans.Class
@@ -83,9 +88,14 @@ import Data.Monoid
 import Data.Typeable
   ( Typeable )
 import Test.QuickCheck
-  ( Property, Gen, Arbitrary(..), CoArbitrary(..) )
+  ( Property, Gen, Arbitrary(..), CoArbitrary(..), Testable )
 import Test.QuickCheck.Monadic
-  ( monadicIO, run, assert )
+  ( PropertyM, monadicIO, run, stop, assert )
+
+-- Transitional MonadFail implementation
+#if MIN_VERSION_base(4,9,0)
+import Control.Monad.Fail
+#endif
 
 
 
@@ -206,18 +216,23 @@ execScriptTT s r eval =
 
 -- | Turn a `ScriptTT` with a monadic evaluator into a `Property`; for testing with QuickCheck. Wraps `execScriptTT`.
 checkScriptTT
-  :: (Monad eff, Monad (t eff), MonadTrans t, Show q)
+  :: forall eff t q prop e r w s p a
+   . (Monad eff, Monad (t eff), MonadTrans t, Show q, Testable prop)
   => s -- ^ Initial state
   -> r -- ^ Environment
   -> (forall u. p u -> eff u) -- ^ Moandic effect evaluator
   -> (t eff (Either e a, s, w) -> IO q) -- ^ Condense to `IO`
-  -> (q -> Bool) -- ^ Result check
+  -> (q -> prop) -- ^ Result check
   -> ScriptTT e r w s p t eff a
   -> Property
-checkScriptTT s r eval cond check script = monadicIO $ do
-  let result = execScriptTT s r eval script
-  q <- run $ cond result
-  assert $ check q
+checkScriptTT s r eval cond check script =
+  let
+    action :: PropertyM IO prop
+    action = do
+      let result = execScriptTT s r eval script
+      q <- run $ cond result
+      stop $ check q
+  in monadicIO action
 
 
 

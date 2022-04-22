@@ -12,6 +12,7 @@ A basic type and monad transformer transformer for describing HTTP interactions.
 
 {-#
   LANGUAGE
+    CPP,
     GADTs,
     Rank2Types,
     RecordWildCards,
@@ -38,7 +39,7 @@ module Control.Monad.Script.Http (
   , catchIOException
   , catchAnyError
   , printError
-  , E()
+  , E(..)
 
   -- * Reader
   , ask
@@ -109,7 +110,13 @@ module Control.Monad.Script.Http (
   , checkHttpTT
 ) where
 
+
+
+#if MIN_VERSION_base(4,9,0)
+import Prelude hiding (fail, lookup)
+#else
 import Prelude hiding (lookup)
+#endif
 
 import Control.Applicative
   ( Applicative(..), (<$>) )
@@ -120,7 +127,7 @@ import Control.Concurrent.MVar
 import Control.Exception
   ( IOException, Exception, try )
 import Control.Monad
-  ( Functor(..), Monad(..), ap )
+  ( Functor(..), Monad((>>=),return), ap )
 import Control.Monad.Trans.Class
   ( MonadTrans(..) )
 import Control.Monad.Trans.Identity
@@ -173,13 +180,25 @@ import System.IO
 import System.IO.Error
   ( ioeGetFileName, ioeGetLocation, ioeGetErrorString )
 import Test.QuickCheck
-  ( Property, Arbitrary(..), Gen )
+  ( Property, Arbitrary(..), Gen, Testable )
 
 import qualified Control.Monad.Script as S
 import Network.HTTP.Client.Extras
 import Data.Aeson.Extras
+
+-- aeson 2.0.0.0 introduced KeyMap over HashMap
+#if MIN_VERSION_aeson(2,0,0)
 import Data.Aeson.Key (fromText)
 import Data.Aeson.KeyMap (lookup)
+#else
+import Data.HashMap.Strict (lookup)
+#endif
+
+-- Transitional MonadFail implementation
+#if MIN_VERSION_base(4,9,0)
+import Control.Monad.Fail
+#endif
+
 import Data.LogSeverity
 import Data.MockIO
 import Data.MockIO.FileSystem
@@ -243,12 +262,13 @@ execHttpTT s r p = S.execScriptTT s r p . httpTT
 
 -- | Turn an `HttpTT` into a property; for testing with QuickCheck.
 checkHttpTT
-  :: (Monad eff, Monad (t eff), MonadTrans t, Show q)
+  :: forall eff t q e r w s p a prop
+   . (Monad eff, Monad (t eff), MonadTrans t, Show q, Testable prop)
   => S s -- ^ Initial state
   -> R e w r -- ^ Environment
   -> (forall u. P p u -> eff u) -- ^ Effect evaluator
   -> (t eff (Either (E e) a, S s, W e w) -> IO q) -- ^ Condense to `IO`
-  -> (q -> Bool) -- ^ Result check
+  -> (q -> prop) -- ^ Result check
   -> HttpTT e r w s p t eff a
   -> Property
 checkHttpTT s r eval cond check =
@@ -1158,9 +1178,16 @@ lookupKeyJson
   -> Value -- ^ JSON object
   -> HttpTT e r w s p t eff Value
 lookupKeyJson key v = case v of
-  Object obj -> case lookup (fromText key) obj of
-    Nothing -> throwJsonError $ JsonKeyDoesNotExist key (Object obj)
-    Just value -> return value
+  Object obj ->
+    let
+#if MIN_VERSION_aeson(2,0,0)
+      val = lookup (fromText key) obj
+#else
+      val = lookup key obj
+#endif
+    in case val of
+      Nothing -> throwJsonError $ JsonKeyDoesNotExist key (Object obj)
+      Just value -> return value
   _ -> throwJsonError $ JsonKeyLookupOffObject key v
 
 -- | Decode a `A.Value` to some other type.
