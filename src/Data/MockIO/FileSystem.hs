@@ -10,7 +10,7 @@ Portability : POSIX
 A fake filesystem for testing.
 -}
 
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, OverloadedStrings #-}
 module Data.MockIO.FileSystem (
     FileSystem(..)
   , File(..)
@@ -26,21 +26,24 @@ module Data.MockIO.FileSystem (
 
 import Data.Maybe
 import Data.List
+import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
 
 import Test.QuickCheck
-  ( Arbitrary(..), Positive(..), Gen, vectorOf )
+  ( Arbitrary(..), Positive(..), Gen, vectorOf, listOf )
 
 
 
 -- | Abstraction of a text file consisting of a "handle" and a list of lines.
 data File a = File
   { _fileHandle :: a -- ^ File "handle"
-  , _fileContents :: [String] -- ^ List of lines
+  , _fileContents :: [Text] -- ^ List of lines
   } deriving Eq
 
 instance (Show a) => Show (File a) where
-  show (File h lns) = unlines $
-    [ ">>>>> " ++ show h ++ ":" ] ++ lns ++ ["<<<<<"]
+  show (File h lns) = T.unpack $ T.unlines $
+    [ ">>>>> " <> T.pack (show h) <> ":" ] ++ lns ++ ["<<<<<"]
 
 
 
@@ -62,7 +65,8 @@ instance (Eq a, Arbitrary a) => Arbitrary (FileSystem a) where
   arbitrary = do
     Positive n <- arbitrary :: Gen (Positive Int)
     handles <- fmap nub $ vectorOf (n `mod` 20) arbitrary
-    FileSystem <$> mapM (\k -> File k <$> arbitrary ) handles
+    let contents = listOf (fmap T.pack arbitrary)
+    FileSystem <$> mapM (\k -> File k <$> contents ) handles
 
 -- | No files; populate with `writeLines` or `appendLines`.
 emptyFileSystem :: FileSystem a
@@ -102,7 +106,7 @@ fileExists h = isJust . getFile h
 hasFile
   :: (Eq a)
   => a -- ^ Handle
-  -> [String] -- ^ Contents
+  -> [Text] -- ^ Contents
   -> FileSystem a
   -> Bool
 hasFile h lns fs = case getLines h fs of
@@ -114,14 +118,14 @@ getLines
   :: (Eq a)
   => a -- ^ Handle
   -> FileSystem a
-  -> Maybe [String]
+  -> Maybe [Text]
 getLines h = fmap _fileContents . getFile h
 
 -- | Overwrite the contents of a file.
 writeLines
   :: (Eq a)
   => a -- ^ Handle
-  -> [String] -- ^ Contents
+  -> [Text] -- ^ Contents
   -> FileSystem a
   -> FileSystem a
 writeLines a lns = putFile (File a lns)
@@ -130,7 +134,7 @@ writeLines a lns = putFile (File a lns)
 appendLines
   :: (Eq a)
   => a -- ^ Handle
-  -> [String] -- ^ Contents
+  -> [Text] -- ^ Contents
   -> FileSystem a
   -> FileSystem a
 appendLines h ls (FileSystem fs) = FileSystem $ appendLines' fs
@@ -138,7 +142,7 @@ appendLines h ls (FileSystem fs) = FileSystem $ appendLines' fs
     appendLines' zs = case zs of
       [] -> [File h ls]
       (File u ms):rest -> if u == h
-        then (File u (ms ++ ls)) : rest
+        then (File u (ms <> ls)) : rest
         else (File u ms) : appendLines' rest
 
 -- | Delete a file; if no such file exists, has no effect.
@@ -162,7 +166,7 @@ readLine
   -> e -- ^ EOF error
   -> a -- ^ Handle
   -> FileSystem a
-  -> Either e (String, FileSystem a)
+  -> Either e (Text, FileSystem a)
 readLine notFound eof k (FileSystem fs) = getline fs []
   where
     getline xs ys = case xs of

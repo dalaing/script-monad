@@ -21,7 +21,7 @@ import Data.ByteString.Lazy
 import Data.String
   ( fromString )
 import Data.Text
-  ( Text )
+  ( Text, pack )
 import Test.QuickCheck
   ( Arbitrary(..), Gen )
 
@@ -30,7 +30,7 @@ import Test.QuickCheck
 -- | Represents the kinds of errors that can occur when parsing and decoding JSON.
 data JsonError
   -- | A generic JSON error; try not to use this.
-  = JsonError String
+  = JsonError Text
   -- | A failed parse.
   | JsonParseError ByteString
   -- | An attempt to look up the value of a key that does not exist on an object.
@@ -43,9 +43,10 @@ data JsonError
 
 instance Arbitrary JsonError where
   arbitrary = do
+    let arbText = pack <$> arbitrary
     k <- arbitrary :: Gen Int
     case k `mod` 5 of
-      0 -> JsonError <$> arbitrary
+      0 -> JsonError <$> arbText
       1 -> JsonParseError <$> (fromString <$> arbitrary)
       2 -> JsonKeyDoesNotExist <$>
              (fromString <$> arbitrary) <*>

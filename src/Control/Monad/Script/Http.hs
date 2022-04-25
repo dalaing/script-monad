@@ -16,6 +16,7 @@ A basic type and monad transformer transformer for describing HTTP interactions.
     GADTs,
     Rank2Types,
     RecordWildCards,
+    OverloadedStrings,
     QuantifiedConstraints
 #-}
 
@@ -141,7 +142,7 @@ import Data.Aeson.Encode.Pretty
 import Data.Aeson.Lens
   ( _Value )
 import Data.ByteString.Lazy
-  ( ByteString, fromStrict, readFile, writeFile )
+  ( ByteString, fromStrict, readFile, writeFile, toStrict )
 import Data.ByteString.Lazy.Char8
   ( unpack, pack )
 import Data.Functor.Identity
@@ -154,6 +155,9 @@ import Data.String
   ( fromString )
 import Data.Text
   ( Text )
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
+import qualified Data.Text.Encoding as T
 import Data.Time
   ( UTCTime )
 import Data.Time.Clock.System
@@ -394,12 +398,12 @@ data E e
   deriving Show
 
 -- | Pretty printer for errors
-printError :: (e -> String) -> E e -> String
+printError :: (e -> Text) -> E e -> Text
 printError p err = case err of
-  E_Http e -> unlines [ "HTTP Exception:", show e ]
-  E_IO e -> unlines [ "IO Exception:", show e ]
-  E_Json e -> unlines [ "JSON Error:", show e ]
-  E e -> unlines [ "Error:", p e ]
+  E_Http e -> T.unlines [ "HTTP Exception:", T.pack $ show e ]
+  E_IO e -> T.unlines [ "IO Exception:", T.pack $ show e ]
+  E_Json e -> T.unlines [ "JSON Error:", T.pack $ show e ]
+  E e -> T.unlines [ "Error:", p e ]
 
 -- | Also logs the exception.
 throwHttpException
@@ -504,7 +508,7 @@ data R e w r = R
   { _logOptions :: LogOptions e w
 
   -- | Printer for log entries.
-  , _logEntryPrinter :: LogOptions e w -> LogEntry e w -> Maybe String
+  , _logEntryPrinter :: LogOptions e w -> LogEntry e w -> Maybe Text
 
   -- | Handle for printing logs
   , _logHandle :: Handle
@@ -513,7 +517,7 @@ data R e w r = R
   , _logLock :: Maybe (MVar ())
 
   -- | Identifier string for the session; used to help match log entries emitted by the same session.
-  , _uid :: String
+  , _uid :: Text
 
   -- | Function for elevating 'HttpException's to a client-supplied error type.
   , _httpErrorInject :: HttpException -> Maybe e 
@@ -569,10 +573,10 @@ data LogOptions e w = LogOptions
   , _logHeaders :: Bool
 
     -- | Printer for client-supplied error type. The boolean toggles JSON pretty printing.
-  , _printUserError :: Bool -> e -> String
+  , _printUserError :: Bool -> e -> Text
 
     -- | Printer for client-supplied log type. the boolean toggles JSON pretty printing.
-  , _printUserLog :: Bool -> w -> String
+  , _printUserLog :: Bool -> w -> Text
   }
 
 -- | Noisy, in color, without parsing JSON responses, and using `Show` instances for user-supplied error and log types.
@@ -583,8 +587,8 @@ basicLogOptions = LogOptions
   , _logSilent = False
   , _logMinSeverity = LogDebug
   , _logHeaders = True
-  , _printUserError = \_ e -> show e
-  , _printUserLog = \_ w -> show w
+  , _printUserError = \_ e -> T.pack $ show e
+  , _printUserLog = \_ w -> T.pack $ show w
   }
 
 -- | Noisy, in color, without parsing JSON responses, and using trivial printers for user-supplied error and log types. For testing.
@@ -603,20 +607,21 @@ trivialLogOptions = LogOptions
 basicLogEntryPrinter
   :: LogOptions e w
   -> LogEntry e w
-  -> Maybe String
+  -> Maybe Text
 basicLogEntryPrinter opt@LogOptions{..} LogEntry{..} =
   if _logSilent || (_logEntrySeverity < _logMinSeverity)
     then Nothing
     else
       let
+        colorize :: Text -> Text
         colorize msg = if _logColor
           then colorBySeverity _logEntrySeverity msg
           else msg
 
-        timestamp :: String
-        timestamp = take 19 $ show _logEntryTimestamp
+        timestamp :: Text
+        timestamp = T.pack $ take 19 $ show _logEntryTimestamp
       in
-        Just $ unwords $ filter (/= "")
+        Just $ T.unwords $ filter (/= "")
           [ colorize timestamp
           , _logEntryUID
           , logEntryTitle _logEntry
@@ -639,14 +644,14 @@ instance Monoid (W e w) where
 
 data LogEntry e w = LogEntry
   { _logEntryTimestamp :: UTCTime
-  , _logEntryUID :: String
+  , _logEntryUID :: Text
   , _logEntrySeverity :: LogSeverity
   , _logEntry :: Log e w
   } deriving Show
 
 -- | Log entry type
 data Log e w
-  = L_Comment String
+  = L_Comment Text
   | L_Request HttpVerb Url Wreq.Options (Maybe ByteString)
   | L_SilentRequest
   | L_Response HttpResponse
@@ -687,7 +692,7 @@ printHttpLogs
   :: Handle
   -> Maybe (MVar ())
   -> LogOptions e w
-  -> (LogOptions e w -> LogEntry e w -> Maybe String)
+  -> (LogOptions e w -> LogEntry e w -> Maybe Text)
   -> W e w
   -> IO ()
 printHttpLogs handle lock opts printer (W ws) = do
@@ -697,8 +702,8 @@ printHttpLogs handle lock opts printer (W ws) = do
         Nothing -> return ()
         Just str -> do
           case lock of
-            Just lock -> withMVar lock (\() -> System.IO.hPutStrLn handle str)
-            Nothing -> System.IO.hPutStrLn handle str
+            Just lock -> withMVar lock (\() -> T.hPutStrLn handle str)
+            Nothing -> T.hPutStrLn handle str
           hFlush handle
 
   if _logSilent opts
@@ -715,8 +720,8 @@ errorMessage e = case e of
   E_Json err -> L_JsonError err
   E e -> L_Error e
 
-type LogEntryTitle = String
-type LogEntryBody = String
+type LogEntryTitle = Text
+type LogEntryBody = Text
 
 logEntryBody
   :: LogOptions e w
@@ -727,65 +732,80 @@ logEntryBody LogOptions{..} entry = case entry of
 
   L_Request verb url opt payload ->
     let
+      head :: Text
       head = case (_logJson, _logHeaders) of
-        (True,  True)  -> unpack $ encodePretty $ jsonResponseHeaders $ opt ^. Wreq.headers
-        (False, True)  -> show $ opt ^. Wreq.headers
+        (True,  True)  -> T.decodeUtf8 $ toStrict $
+          encodePretty $ jsonResponseHeaders $ opt ^. Wreq.headers
+        (False, True)  -> T.pack $ show $ opt ^. Wreq.headers
         (_,     False) -> ""
 
+      body :: Text
       body = case (_logJson, payload) of
         (True,  Just p)  -> case decode p of
-          Nothing -> "JSON parse error:\n" ++ unpack p
-          Just v -> unpack $ encodePretty (v :: Value)
-        (False, Just p)  -> unpack p
+          Nothing -> "JSON parse error:\n" <> T.decodeUtf8 (toStrict p)
+          Just v -> T.decodeUtf8 $ toStrict $ encodePretty (v :: Value)
+        (False, Just p)  -> T.decodeUtf8 $ toStrict p
         (_,     Nothing) -> ""
 
     in
-      intercalate "\n" $ filter (/= "") [unwords ["Request", show verb, url], head, body]
+      T.intercalate "\n" $ filter (/= "")
+        [ T.unwords ["Request", T.pack $ show verb, url]
+        , head
+        , body
+        ]
 
   L_SilentRequest -> ""
 
   L_Response response ->
     let
+      head :: Text
       head = case (_logJson, _logHeaders) of
-        (True,  True)  -> unpack $ encodePretty $ jsonResponseHeaders $ _responseHeaders response
-        (False, True)  -> show $ _responseHeaders response
+        (True,  True)  -> T.decodeUtf8 $ toStrict $
+          encodePretty $ jsonResponseHeaders $ _responseHeaders response
+        (False, True)  -> T.pack $ show $ _responseHeaders response
         (_,     False) -> ""
 
+      body :: Text
       body = case _logJson of
-        True  -> unpack $ encodePretty $ preview _Value $ _responseBody response
-        False -> show response
+        True  -> T.decodeUtf8 $ toStrict $
+          encodePretty $ preview _Value $ _responseBody response
+        False -> T.pack $ show response
 
     in
-      intercalate "\n" $ filter (/= "") ["Response", head, body]
+      T.intercalate "\n" $ filter (/= "") ["Response", head, body]
 
   L_SilentResponse -> ""
 
-  L_Pause k -> "Wait for " ++ show k ++ "μs"
+  L_Pause k -> "Wait for " <> T.pack (show k) <> "μs"
 
   L_HttpError e -> if _logJson
     then
       let
-        unpackHttpError :: HttpException -> Maybe (String, String)
+        unpackHttpError :: HttpException -> Maybe (Text, Text)
         unpackHttpError err = case err of
           HttpExceptionRequest _ (StatusCodeException s r) -> do
             json <- decode $ fromStrict r
             let status = s ^. Wreq.responseStatus 
-            return (show status, unpack $ encodePretty (json :: Value))
+            return (T.pack $ show status, T.decodeUtf8 $ toStrict $ encodePretty (json :: Value))
           _ -> Nothing
       in
         case unpackHttpError e of
-          Nothing -> show e
-          Just (code, json) -> intercalate "\n" [ unwords [ "HTTP Error Response", code], json ]
+          Nothing -> T.pack $ show e
+          Just (code, json) -> T.intercalate "\n" [ T.unwords [ "HTTP Error Response", code], json ]
 
-    else show e
+    else T.pack $ show e
 
-  L_IOError e -> unwords [ show $ ioeGetFileName e, ioeGetLocation e, ioeGetErrorString e ]
+  L_IOError e -> T.unwords
+    [ T.pack $ show $ ioeGetFileName e
+    , T.pack $ ioeGetLocation e
+    , T.pack $ ioeGetErrorString e
+    ]
 
-  L_JsonError e -> show e
+  L_JsonError e -> T.pack $ show e
 
-  L_Error e -> unwords [ _printUserError _logJson e ]
+  L_Error e -> T.unwords [ _printUserError _logJson e ]
 
-  L_Log w -> unwords [ _printUserLog _logJson w ]
+  L_Log w -> T.unwords [ _printUserLog _logJson w ]
 
 
 
@@ -820,10 +840,10 @@ basicState s = S
 -- | Atomic effects
 data P p a where
   HPutStrLn
-    :: Handle -> String
+    :: Handle -> Text
     -> P p (Either IOException ())
   HPutStrLnBlocking
-    :: MVar () -> Handle -> String
+    :: MVar () -> Handle -> Text
     -> P p (Either IOException ())
 
   GetSystemTime :: P p UTCTime
@@ -848,28 +868,34 @@ evalIO
   -> IO a
 evalIO eval x = case x of
   HPutStrLn handle string -> try $ do
-    System.IO.hPutStrLn handle string
+    T.hPutStrLn handle string
     hFlush handle
 
   HPutStrLnBlocking lock handle str -> try $ do
-    withMVar lock (\() -> System.IO.hPutStrLn handle str)
+    withMVar lock (\() -> T.hPutStrLn handle str)
     hFlush handle
 
   GetSystemTime -> fmap systemToUTCTime getSystemTime
 
   ThreadDelay k -> threadDelay k
 
-  HttpGet opts s url -> case s of
-    Nothing -> try $ readHttpResponse <$> Wreq.getWith opts url
-    Just sn -> try $ readHttpResponse <$> S.getWith opts sn url
+  HttpGet opts s url ->
+    let url' = T.unpack url
+    in case s of
+      Nothing -> try $ readHttpResponse <$> Wreq.getWith opts url'
+      Just sn -> try $ readHttpResponse <$> S.getWith opts sn url'
 
-  HttpPost opts s url msg -> case s of
-    Nothing -> try $ readHttpResponse <$> Wreq.postWith opts url msg
-    Just sn -> try $ readHttpResponse <$> S.postWith opts sn url msg
+  HttpPost opts s url msg ->
+    let url' = T.unpack url
+    in case s of
+      Nothing -> try $ readHttpResponse <$> Wreq.postWith opts url' msg
+      Just sn -> try $ readHttpResponse <$> S.postWith opts sn url' msg
 
-  HttpDelete opts s url -> case s of
-    Nothing -> try $ readHttpResponse <$> Wreq.deleteWith opts url
-    Just sn -> try $ readHttpResponse <$> S.deleteWith opts sn url
+  HttpDelete opts s url ->
+    let url' = T.unpack url
+    in case s of
+      Nothing -> try $ readHttpResponse <$> Wreq.deleteWith opts url'
+      Just sn -> try $ readHttpResponse <$> S.deleteWith opts sn url'
 
   P act -> eval act
 
@@ -882,12 +908,12 @@ evalMockIO eval x = case x of
   HPutStrLn handle str -> do
     incrementTimer 1
     fmap Right $ modifyMockWorld $ \w -> w
-      { _files = appendLines (Right handle) (lines str) $ _files w }
+      { _files = appendLines (Right handle) (T.lines str) $ _files w }
 
   HPutStrLnBlocking _ handle str -> do
     incrementTimer 1
     fmap Right $ modifyMockWorld $ \w -> w
-      { _files = appendLines (Right handle) (lines str) $ _files w }
+      { _files = appendLines (Right handle) (T.lines str) $ _files w }
 
   GetSystemTime -> do
     incrementTimer 1
@@ -943,7 +969,7 @@ logNow severity msg = do
 -- | Write a comment to the log
 comment
   :: (Monad eff, Monad (t eff), MonadTrans t)
-  => String
+  => Text
   -> HttpTT e r w s p t eff ()
 comment msg = logNow LogInfo $ L_Comment msg
 
@@ -1027,7 +1053,7 @@ setLogSeverity severity = censor (W . map f . unW)
 hPutStrLn
   :: (Monad eff, Monad (t eff), MonadTrans t)
   => Handle
-  -> String
+  -> Text
   -> HttpTT e r w s p t eff ()
 hPutStrLn h str = do
   result <- prompt $ HPutStrLn h str
@@ -1040,7 +1066,7 @@ hPutStrLnBlocking
   :: (Monad eff, Monad (t eff), MonadTrans t)
   => MVar ()
   -> Handle
-  -> String
+  -> Text
   -> HttpTT e r w s p t eff ()
 hPutStrLnBlocking lock h str = do
   result <- prompt $ HPutStrLnBlocking lock h str

@@ -32,6 +32,8 @@ import qualified Data.ByteString as SB
   ( ByteString, unpack )
 import Data.ByteString.Lazy
   ( ByteString, unpack )
+import Data.Text
+  ( Text )
 import Data.Vector
   ( fromList )
 import Network.HTTP.Client
@@ -58,7 +60,7 @@ import qualified Data.Text as T (Text, pack)
 
 
 -- | To make type signatures nicer
-type Url = String
+type Url = Text
 
 -- | Non-opaque HTTP response type.
 data HttpResponse = HttpResponse

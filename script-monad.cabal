@@ -85,12 +85,14 @@ test-suite script-monad-test
     , tasty >=1.0.1.1
     , tasty-hunit >=0.10.0.1
     , tasty-quickcheck >=0.9.2
-    , tasty-quickcheck-laws >= 0.0.1
+    , tasty-quickcheck-laws >=0.0.1
+    , text >=1.2.3.1
     , transformers >=0.5.2.0
 
   other-modules:
       Control.Monad.Script.Test
     , Control.Monad.Script.Http.Test
+    , Data.Text.Extras
     , Data.MockIO.Test
     , Data.MockIO.Test.Server
     , Data.MockIO.FileSystem.Test

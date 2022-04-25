@@ -4,9 +4,13 @@ module Data.MockIO.FileSystem.Test (
 
 import Data.Proxy
   ( Proxy(..) )
+import Data.Text
+  ( Text )
 
 import Test.Tasty
 import Test.Tasty.QuickCheck
+
+import Data.Text.Extras
 
 import Data.MockIO.FileSystem
 
@@ -66,31 +70,31 @@ prop_filesystem_eq_transitive _ x y z =
   if (x == y) && (y == z) then x == z else True
 
 prop_appendLines_not_equal
-  :: (Eq a) => Proxy a -> a -> String -> FileSystem a -> Bool
+  :: (Eq a) => Proxy a -> a -> Text -> FileSystem a -> Bool
 prop_appendLines_not_equal _ h lns fs =
   fs /= appendLines h [lns] fs
 
 prop_writeLines_lzero
-  :: (Eq a) => Proxy a -> a -> [String] -> [String] -> FileSystem a -> Bool
+  :: (Eq a) => Proxy a -> a -> [Text] -> [Text] -> FileSystem a -> Bool
 prop_writeLines_lzero _ h ls ms fs =
   (writeLines h ls fs) == (writeLines h ls $ writeLines h ms fs)
 
 prop_writeLines_fileExists
-  :: (Eq a) => Proxy a -> a -> [String] -> FileSystem a -> Bool
+  :: (Eq a) => Proxy a -> a -> [Text] -> FileSystem a -> Bool
 prop_writeLines_fileExists _ h lns fs =
   fileExists h $ writeLines h lns fs
 
 prop_hasFile_writeLines
-  :: (Eq a) => Proxy a -> a -> [String] -> FileSystem a -> Bool
+  :: (Eq a) => Proxy a -> a -> [Text] -> FileSystem a -> Bool
 prop_hasFile_writeLines _ h lns fs =
   hasFile h lns $ writeLines h lns fs
 
 prop_appendLines_writeLines
-  :: (Eq a) => Proxy a -> a -> [String] -> [String] -> FileSystem a -> Bool
+  :: (Eq a) => Proxy a -> a -> [Text] -> [Text] -> FileSystem a -> Bool
 prop_appendLines_writeLines _ h as bs fs =
   (==)
     (appendLines h bs $ writeLines h as fs)
-    (writeLines h (as ++ bs) fs)
+    (writeLines h (as <> bs) fs)
 
 prop_deleteFile_idempotent
   :: (Eq a) => Proxy a -> a -> FileSystem a -> Bool
@@ -120,7 +124,7 @@ prop_hasFile_getLines _ h ls fs =
     Just ms -> hasFile h ms fs
 
 prop_readLine_writeLines
-  :: (Eq a) => Proxy a -> a -> String -> FileSystem a -> Bool
+  :: (Eq a) => Proxy a -> a -> Text -> FileSystem a -> Bool
 prop_readLine_writeLines _ h str fs =
   case readLine () () h $ writeLines h [str] fs of
     Left _ -> False

@@ -11,7 +11,12 @@ import Data.Functor.Identity
 import Data.Proxy
 import Data.String
 import Data.ByteString.Lazy
-  ( ByteString, pack )
+  ( ByteString, pack, toStrict, fromChunks )
+import Data.Text
+  ( Text )
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import Data.Text.Extras
 import Data.Typeable
 import Data.List (isSuffixOf)
 import Network.HTTP.Types
@@ -188,7 +193,7 @@ prop_comment_value
   -> (forall u. P p u -> eff u)
   -> (forall e s w t. IdentityT eff (Either (E e) t, S s, W e w) -> IO (Either (E e) t, S s, W e w))
   -> HttpT e r w s p eff ()
-  -> s -> r -> String -> Property
+  -> s -> r -> Text -> Property
 prop_comment_value _ _ _ _ eval cond x s r msg =
   checkHttpTT (basicState s) (testEnv r) eval cond
     (hasValue (== ())) $
@@ -201,7 +206,7 @@ prop_comment_state
   -> (forall u. P p u -> eff u)
   -> (forall e s w t. IdentityT eff (Either (E e) t, S s, W e w) -> IO (Either (E e) t, S s, W e w))
   -> HttpT e r w s p eff ()
-  -> s -> r -> String -> Property
+  -> s -> r -> Text -> Property
 prop_comment_state _ _ _ _ eval cond x s r msg =
   checkHttpTT (basicState s) (testEnv r) eval cond
     (hasState (== s)) $
@@ -214,9 +219,9 @@ prop_comment_write
   -> (forall u. P p u -> eff u)
   -> (forall e s w t. IdentityT eff (Either (E e) t, S s, W e w) -> IO ((Either (E e) t, S s, W e w), MockWorld u))
   -> HttpT e r w s p eff ()
-  -> s -> r -> String -> Property
+  -> s -> r -> Text -> Property
 prop_comment_write _ _ _ _ eval cond x s r str =
-  let msg = filter (/= '\n') str in
+  let msg = T.filter (/= '\n') str in
   checkHttpTT (basicState s) (noisyEnv r) eval cond
     (hasWorld $ outputContains msg) $
     as x $ do
@@ -228,9 +233,9 @@ prop_comment_silent
   -> (forall u. P p u -> eff u)
   -> (forall e s w t. IdentityT eff (Either (E e) t, S s, W e w) -> IO ((Either (E e) t, S s, W e w), MockWorld u))
   -> HttpT e r w s p eff ()
-  -> s -> r -> String -> Property
+  -> s -> r -> Text -> Property
 prop_comment_silent _ _ _ _ eval cond x s r str =
-  let msg = filter (/= '\n') str in
+  let msg = T.filter (/= '\n') str in
   checkHttpTT (basicState s) (testEnv r) eval cond
     (hasWorld outputIsEmpty) $
     as x $ do
@@ -243,13 +248,13 @@ hasWorld
 hasWorld p (_,w) = p w
 
 outputContains
-  :: String
+  :: Text
   -> MockWorld u
   -> Bool
 outputContains str world =
   case getLines (Right stdout) $ _files world of
     Nothing -> False
-    Just ls -> any (isSuffixOf str) ls
+    Just ls -> any (T.isSuffixOf str) ls
 
 outputIsEmpty
   :: MockWorld u -> Bool
@@ -291,7 +296,7 @@ prop_wait_write
   -> s -> r -> Int -> Property
 prop_wait_write _ _ _ _ eval cond x s r k =
   checkHttpTT (basicState s) (noisyEnv r) eval cond
-    (hasWorld $ outputContains $ "Wait for " ++ show k ++ "μs") $
+    (hasWorld $ outputContains $ "Wait for " <> T.pack (show k) <> "μs") $
     as x $ do
       wait k
 
@@ -337,7 +342,7 @@ prop_httpGet_json _ _ _ _ eval cond x s r =
         >>= (return . _responseBody)
         >>= parseJson
       val2 <- parseJson "{\"key\":\"value\"}"
-      comment $ show $ val1 == val2
+      comment $ T.pack $ show $ val1 == val2
       return ()
 
 prop_httpGet_write
@@ -402,12 +407,13 @@ prop_httpPost
   -> (forall u. P p u -> eff u)
   -> (forall e s w t. IdentityT eff (Either (E e) t, S s, W e w) -> IO (Either (E e) t, S s, W e w))
   -> HttpT e r w s p eff Int
-  -> s -> r -> String -> Property
+  -> s -> r -> Text -> Property
 prop_httpPost _ _ _ _ eval cond x s r payload =
   checkHttpTT (basicState s) (testEnv r) eval cond
     (hasValue (== 200)) $
     as x $ do
-      response <- httpPost "http://example.com" (fromString payload)
+      response <- httpPost "http://example.com" $
+        fromChunks [T.encodeUtf8 payload]
       return (statusCode $ _responseStatus response)
 
 prop_httpSilentPost
@@ -416,12 +422,13 @@ prop_httpSilentPost
   -> (forall u. P p u -> eff u)
   -> (forall e s w t. IdentityT eff (Either (E e) t, S s, W e w) -> IO (Either (E e) t, S s, W e w))
   -> HttpT e r w s p eff Int
-  -> s -> r -> String -> Property
+  -> s -> r -> Text -> Property
 prop_httpSilentPost _ _ _ _ eval cond x s r payload =
   checkHttpTT (basicState s) (testEnv r) eval cond
     (hasValue (== 200)) $
     as x $ do
-      response <- httpSilentPost "http://example.com" (fromString payload)
+      response <- httpSilentPost "http://example.com" $
+        fromChunks [T.encodeUtf8 payload]
       return (statusCode $ _responseStatus response)
 
 prop_throwError

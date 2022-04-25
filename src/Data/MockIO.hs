@@ -49,6 +49,8 @@ import Control.Monad
   ( ap )
 import Data.ByteString.Lazy
   ( ByteString, pack )
+import Data.Text
+  ( Text )
 import Data.Time
   ( UTCTime(..), Day(..), diffTimeToPicoseconds )
 import Data.Time.Clock
@@ -115,9 +117,9 @@ data MockWorld s = MockWorld
   { _files :: FileSystem (Either FilePath Handle)
   , _time :: UTCTime
 
-  , _httpGet :: String -> MockNetwork s HttpResponse
-  , _httpPost :: String -> ByteString -> MockNetwork s HttpResponse
-  , _httpDelete :: String -> MockNetwork s HttpResponse
+  , _httpGet :: Text -> MockNetwork s HttpResponse
+  , _httpPost :: Text -> ByteString -> MockNetwork s HttpResponse
+  , _httpDelete :: Text -> MockNetwork s HttpResponse
 
   , _serverState :: MockServer s
   }

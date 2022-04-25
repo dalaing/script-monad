@@ -11,6 +11,7 @@ Unreleased
     * Relax types of `checkScriptTT` and `checkHttpTT`
     * Relax lower bounds of dependencies to support stack resolvers as old as lts-13.0. (This is a hard lower bound because we require QuantifiedConstraints.)
     * Support aeson-2.0.0.0 and http-client-0.7.0
+    * Replace String with Text
 
 
 
