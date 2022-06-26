@@ -46,7 +46,7 @@ test_with_lts_major () {
   fi
 }
 
-test_with_lts_major 19 4
+test_with_lts_major 19 13
 test_with_lts_major 18 28
 test_with_lts_major 17 15
 test_with_lts_major 16 31
