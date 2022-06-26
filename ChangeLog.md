@@ -1,8 +1,13 @@
 Changelog for script-monad
 ==========================
 
-Unreleased
-----------
+Unreleased Changes
+------------------
+
+
+
+0.0.4
+-----
 
 * Added
     * `MonadFail` instances for `ScriptTT` and `HttpTT`
