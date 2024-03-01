@@ -126,9 +126,10 @@ import Control.Concurrent
 import Control.Concurrent.MVar
   ( MVar, withMVar )
 import Control.Exception
-  ( IOException, Exception, try )
+  ( IOException, Exception, SomeException(SomeException), try, toException, fromException )
 import Control.Monad
   ( Functor(..), Monad((>>=),return), ap )
+import qualified Control.Monad.Catch as Catch
 import Control.Monad.Trans.Class
   ( MonadTrans(..) )
 import Control.Monad.Trans.Identity
@@ -394,8 +395,26 @@ data E e
   = E_Http HttpException
   | E_IO IOException
   | E_Json JsonError
+  | E_Exception SomeException
   | E e -- ^ Client-supplied error type.
   deriving Show
+
+instance (Monad eff, Monad (t eff), MonadTrans t) => Catch.MonadThrow (HttpTT e r w s p t eff) where
+  throwM e = throw $ E_Exception (SomeException e)
+
+instance (Monad eff, Monad (t eff), MonadTrans t) => Catch.MonadCatch (HttpTT e r w s p t eff) where
+  catch act handler = catch act $ \err ->
+    case err of
+      E_Http e -> case fromException (toException e) of
+        Nothing -> act
+        Just e2 -> handler e2
+      E_IO e -> case fromException (toException e) of
+        Nothing -> act
+        Just e2 -> handler e2
+      E_Exception e -> case fromException e of
+        Nothing -> act
+        Just e2 -> handler e2
+      _ -> throw err
 
 -- | Pretty printer for errors
 printError :: (e -> Text) -> E e -> Text
@@ -403,6 +422,7 @@ printError p err = case err of
   E_Http e -> T.unlines [ "HTTP Exception:", T.pack $ show e ]
   E_IO e -> T.unlines [ "IO Exception:", T.pack $ show e ]
   E_Json e -> T.unlines [ "JSON Error:", T.pack $ show e ]
+  E_Exception e -> T.unlines [ "Exception:", T.pack $ show e ]
   E e -> T.unlines [ "Error:", p e ]
 
 -- | Also logs the exception.
